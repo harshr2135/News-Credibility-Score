@@ -1,0 +1,16 @@
+fastapi
+uvicorn
+nltk
+scikit-learn
+sentence-transformers
+requests
+beautifulsoup4
+feedparser
+easyocr
+pytesseract
+opencv-python
+numpy
+pandas
+google-generativeai
+python-dotenv
+tavily-python
