@@ -1,6 +1,6 @@
 # Minor Project: News Credibility Checker
 
-## Overview
+## Overview 
 
 This application evaluates the credibility of news articles by measuring how consistently they are supported across trusted sources. Instead of classifying articles as "true" or "false," it uses similarity analysis to determine the level of support from reliable news outlets. The system emphasizes transparency, with clear explanations of scores and sources used.
 
