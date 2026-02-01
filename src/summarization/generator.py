@@ -1,35 +1,51 @@
 import os
-import google.generativeai as genai
+import time
+from google import genai
+from google.genai import types
 from dotenv import load_dotenv
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 # Load environment variables
 load_dotenv()
 
 # Configure Gemini
 api_key = os.getenv("GEMINI_API_KEY")
+client = None
+
 if api_key:
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    client = genai.Client(api_key=api_key)
 else:
     print("WARNING: GEMINI_API_KEY not found in .env")
-    model = None
+
+# Retry configuration: Wait 2^x * 1 second between retries, stop after 5 attempts
+@retry(
+    stop=stop_after_attempt(5),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    retry=retry_if_exception_type(Exception) # Retrying on general Exception as GenAI errors vary
+)
+def generate_content_with_retry(prompt: str):
+    # Using gemini-1.5-flash for better stability/quota
+    return client.models.generate_content(
+        model='gemini-1.5-flash', 
+        contents=prompt
+    )
 
 def generate_summary(text: str) -> str:
     """Generates a concise 3-sentence summary of the given text using Gemini."""
-    if not model:
+    if not client:
         return "Error: Gemini API key not configured."
     
     try:
         prompt = f"Summarize the following text in exactly 3 concise sentences:\n\n{text}"
-        response = model.generate_content(prompt)
+        response = generate_content_with_retry(prompt)
         return response.text.strip()
     except Exception as e:
         print(f"Error generating summary: {e}")
-        return "Error generating summary."
+        return "Error generating summary (Quota Exceeded or API Error)."
 
 def extract_claims(text: str) -> list[str]:
     """Extracts 3 core claims from the text using Gemini."""
-    if not model:
+    if not client:
         return ["Error: Gemini API key not configured."]
 
     try:
@@ -38,7 +54,7 @@ def extract_claims(text: str) -> list[str]:
             "Return them as a simple bulleted list without introductory text.\n\n"
             f"{text}"
         )
-        response = model.generate_content(prompt)
+        response = generate_content_with_retry(prompt)
         # Process the response to get a clean list
         claims = [line.strip().lstrip('-•* ') for line in response.text.splitlines() if line.strip()]
         return claims[:3]
