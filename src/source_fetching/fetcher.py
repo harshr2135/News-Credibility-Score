@@ -16,7 +16,16 @@ load_dotenv()
 tavily_api_key = os.getenv("TAVILY_API_KEY")
 tavily_client = TavilyClient(api_key=tavily_api_key) if tavily_api_key else None
 
-async def fetch_trusted_sources(query: str, num_results: int = 5) -> List[SourceArticle]:
+# List of high-credibility news domains to restrict search
+TRUSTED_DOMAINS = [
+    "reuters.com", "apnews.com", "bbc.com", "npr.org", "pbs.org", 
+    "nytimes.com", "washingtonpost.com", "wsj.com", "bloomberg.com", 
+    "theguardian.com", "dw.com", "euronews.com", "aljazeera.com", 
+    "cbc.ca", "cnbc.com", "hindustantimes.com", "timesofindia.indiatimes.com", 
+    "ndtv.com", "indianexpress.com", "thehindu.com" 
+]
+
+async def fetch_trusted_sources(query: str, num_results: int = 50) -> List[SourceArticle]:
     """Fetches articles from trusted sources using Tavily API."""
     if not tavily_client:
         print("Tavily API key not found.")
@@ -33,7 +42,8 @@ async def fetch_trusted_sources(query: str, num_results: int = 5) -> List[Source
             search_depth="advanced", 
             topic="news", 
             max_results=num_results,
-            include_raw_content=True
+            include_raw_content=True,
+            include_domains=TRUSTED_DOMAINS
         )
         
         articles = []

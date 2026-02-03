@@ -8,7 +8,7 @@ document.addEventListener('DOMContentLoaded', () => {
         tab.addEventListener('click', () => {
             tabs.forEach(t => t.classList.remove('active'));
             inputGroups.forEach(g => g.classList.remove('active'));
-            
+
             tab.classList.add('active');
             const target = tab.getAttribute('data-tab');
             document.getElementById(`${target}-input`).classList.add('active');
@@ -19,9 +19,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // Image Upload Click
     const uploadArea = document.querySelector('.upload-area');
     const fileInput = document.querySelector('input[type="file"]');
-    
+
     uploadArea.addEventListener('click', () => fileInput.click());
-    
+
     fileInput.addEventListener('change', (e) => {
         if (e.target.files.length > 0) {
             uploadArea.querySelector('p').textContent = `Selected: ${e.target.files[0].name}`;
@@ -33,11 +33,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const resultsSection = document.getElementById('results-section');
     const loader = document.querySelector('.loader');
     const resultsContent = document.querySelector('.results-content');
-    
+
     analyzeBtn.addEventListener('click', async () => {
         // Prepare payload
         let payload = {};
-        
+
         if (currentMode === 'text') {
             const text = document.querySelector('#text-input textarea').value;
             if (!text) return alert("Please enter text.");
@@ -60,16 +60,38 @@ document.addEventListener('DOMContentLoaded', () => {
             return; // performAnalysis called in callback
         }
 
+        // Show immediate feedback
+        resultsSection.classList.remove('hidden');
+        resultsSection.scrollIntoView({ behavior: 'smooth' });
+
         await performAnalysis(payload);
     });
 
     async function performAnalysis(payload) {
         // UI State
-        resultsSection.classList.remove('hidden');
         loader.classList.remove('hidden');
         resultsContent.classList.add('hidden');
-        resultsSection.scrollIntoView({ behavior: 'smooth' });
 
+        // Show summary section immediately with loading state
+        const summarySection = document.getElementById('summary-section');
+        summarySection.classList.remove('hidden');
+        document.getElementById('article-summary-text').textContent = "Generating AI Summary...";
+        document.getElementById('article-claims').innerHTML = "<p>Extracting key claims...</p>";
+
+        // Trigger Summary Request (Fast)
+        fetch('/summarize', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+            .then(res => {
+                if (!res.ok) throw new Error("Summary generation failed");
+                return res.json();
+            })
+            .then(data => renderSummary(data))
+            .catch(err => console.error("Summary error:", err));
+
+        // Trigger Analysis Request (Slow)
         try {
             const response = await fetch('/analyze', {
                 method: 'POST',
@@ -77,8 +99,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 body: JSON.stringify(payload)
             });
 
-            if (!response.ok) throw new Error("Analysis failed");
-            
+            if (!response.ok) {
+                const errData = await response.json();
+                throw new Error(errData.detail || "Analysis failed");
+            }
+
             const data = await response.json();
             renderResults(data);
 
@@ -90,25 +115,38 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    function renderSummary(data) {
+        const section = document.getElementById('summary-section');
+        section.classList.remove('hidden');
+
+        document.getElementById('article-summary-text').textContent = data.summary;
+
+        if (data.claims && data.claims.length > 0) {
+            const claimsList = document.getElementById('article-claims');
+            claimsList.innerHTML = '<div class="claims-title">Key Claims Identified:</div><ul>' +
+                data.claims.map(c => `<li>${c}</li>`).join('') + '</ul>';
+        }
+    }
+
     function renderResults(data) {
         resultsContent.classList.remove('hidden');
-        
+
         // Score
         const score = Math.round(data.credibility_score);
         const scoreVal = document.getElementById('score-value');
         const scoreCircle = document.getElementById('score-circle');
         const badge = document.getElementById('score-badge');
-        
+
         // Update number animation (simple text update for now)
         scoreVal.textContent = score;
-        
+
         // Update circle stroke
         const radius = 54;
         const circumference = 2 * Math.PI * radius;
         const offset = circumference - (score / 100) * circumference;
         scoreCircle.style.strokeDasharray = `${circumference} ${circumference}`;
         scoreCircle.style.strokeDashoffset = offset;
-        
+
         // Update badge color
         if (score >= 80) {
             badge.textContent = "Strong Support";
@@ -133,14 +171,14 @@ document.addEventListener('DOMContentLoaded', () => {
         // Sources
         const list = document.getElementById('sources-list');
         list.innerHTML = '';
-        
+
         if (data.supporting_sources.length === 0) {
             list.innerHTML = '<p style="color:var(--text-secondary)">No supporting sources found.</p>';
         } else {
             data.supporting_sources.forEach(src => {
                 const div = document.createElement('div');
                 div.className = `source-item ${src.similarity_score >= 0.7 ? 'high-sim' : 'med-sim'}`;
-                
+
                 div.innerHTML = `
                     <div class="source-header">
                         <span class="source-domain">${src.domain || 'Source'}</span>

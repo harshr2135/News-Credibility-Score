@@ -11,7 +11,7 @@ from .nlp_processing.vector_representation import get_text_vector
 from .source_fetching.fetcher import fetch_trusted_sources, SourceArticle
 from .similarity_computation.calculator import calculate_similarity
 from .credibility_scoring.scorer import calculate_credibility_score
-from .summarization.generator import generate_summary, extract_claims
+from .summarization.generator import generate_summary, extract_claims, generate_search_query
 from .database.cache import get_cached_article, cache_article, get_cached_vector, cache_vector
 
 app = FastAPI(
@@ -26,24 +26,55 @@ class ArticleInput(BaseModel):
     image: str | None = None  # Base64 encoded image
 
 
-@app.post("/analyze")
-async def analyze_article(article_input: ArticleInput):
+
+async def extract_content(article_input: ArticleInput):
     raw_text = None
     if article_input.url:
-        raw_text = await process_url_input(article_input.url)
+        try:
+            raw_text = await process_url_input(article_input.url)
+        except Exception as e:
+            # Check if it is a 403 or 401 error
+            error_msg = str(e)
+            if "403" in error_msg or "401" in error_msg:
+                raise HTTPException(
+                    status_code=400, 
+                    detail="This website is blocking automated access (Security Block). Please copy the text manually and use the 'Text' tab."
+                )
+            raise HTTPException(status_code=400, detail=f"Error fetching URL: {error_msg}")
     elif article_input.text:
         raw_text = process_text_input(article_input.text)
     elif article_input.image:
         raw_text = await process_image_input(article_input.image)
-
+    
     if not raw_text:
         raise HTTPException(status_code=400, detail="No valid input provided or text extraction failed.")
+        
+    return raw_text
+
+@app.post("/summarize")
+async def summarize_article(article_input: ArticleInput):
+    raw_text = await extract_content(article_input)
+    
+    # Generate Summary & Claims
+    summary = generate_summary(raw_text)
+    claims = extract_claims(raw_text)
+    
+    return {
+        "summary": summary,
+        "claims": claims
+    }
+
+@app.post("/analyze")
+async def analyze_article(article_input: ArticleInput):
+    raw_text = await extract_content(article_input)
 
     # Check cache for raw_text
     cached_result = get_cached_article(raw_text)
     if cached_result:
         # For now, just return a dummy cached result. Full implementation later.
-        return {"message": "Returning cached result for raw text.", "content": cached_result}
+        # Return cached result directly to maintain consistent API response structure
+        print("Returning cached result.")
+        return cached_result
 
     # NLP Preprocessing (Input)
     preprocessed_text = preprocess_text(raw_text)
@@ -54,8 +85,9 @@ async def analyze_article(article_input: ArticleInput):
     claims = extract_claims(raw_text)
     
     # 2. Form Search Query (Stage 3)
-    # Simple strategy: Combine top claims or use summary
-    search_query = " ".join(claims) if claims else summary[:200]
+    # Use smart query generation for better search results
+    search_query = generate_search_query(raw_text[:2000]) # Limit input to save tokens
+    print(f"Generated Search Query: {search_query}")
     
     # 3. Source Collection (Stage 3)
     trusted_articles = await fetch_trusted_sources(search_query) 

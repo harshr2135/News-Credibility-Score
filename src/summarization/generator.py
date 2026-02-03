@@ -41,7 +41,8 @@ def generate_summary(text: str) -> str:
         return response.text.strip()
     except Exception as e:
         print(f"Error generating summary: {e}")
-        return "Error generating summary (Quota Exceeded or API Error)."
+        # Fallback to simple truncation if API fails
+        return text[:200] + "..." if text else "Summary unavailable."
 
 def extract_claims(text: str) -> list[str]:
     """Extracts 3 core claims from the text using Gemini."""
@@ -61,3 +62,23 @@ def extract_claims(text: str) -> list[str]:
     except Exception as e:
         print(f"Error extracting claims: {e}")
         return ["Error extracting claims."]
+
+def generate_search_query(text: str) -> str:
+    """Generates an optimized search engine query based on the text."""
+    if not client:
+        return "news"
+
+    try:
+        prompt = (
+            "You are an expert at verification. "
+            "Extract the 5-7 most important keywords, named entities (people, orgs, places), and key event terms from the text below. "
+            "Return a SINGLE string of space-separated keywords that would work best for a search engine to find related news articles. "
+            "Avoid stopwords. Do NOT use quotes or labels like 'Keywords:'.\n\n"
+            f"{text}"
+        )
+        response = generate_content_with_retry(prompt)
+        # Strip quotes and extra whitespace
+        return response.text.strip().replace('"', '').replace("'", "")
+    except Exception as e:
+        print(f"Error generating search query: {e}")
+        return "latest news findings"
