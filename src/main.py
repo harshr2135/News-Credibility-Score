@@ -2,6 +2,13 @@ from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+import sys
+import io
+
+# Set default encoding to utf-8 for stdout/stderr to handle Unicode on Windows
+# This prevents UnicodeEncodeError when printing emojis or non-English characters
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 
 from .input_handling.url_processor import process_url_input
 from .input_handling.text_processor import process_text_input
@@ -11,7 +18,7 @@ from .nlp_processing.vector_representation import get_text_vector
 from .source_fetching.fetcher import fetch_trusted_sources, SourceArticle
 from .similarity_computation.calculator import calculate_similarity
 from .credibility_scoring.scorer import calculate_credibility_score
-from .summarization.generator import generate_summary, extract_claims, generate_search_query
+from .summarization.generator import generate_summary, extract_claims, generate_search_query, extract_event_and_entities
 from .database.cache import get_cached_article, cache_article, get_cached_vector, cache_vector
 
 app = FastAPI(
@@ -84,13 +91,43 @@ async def analyze_article(article_input: ArticleInput):
     summary = generate_summary(raw_text)
     claims = extract_claims(raw_text)
     
-    # 2. Form Search Query (Stage 3)
-    # Use smart query generation for better search results
-    search_query = generate_search_query(raw_text[:2000]) # Limit input to save tokens
+    # 2. Event & Entity Extraction (Pre-Stage 3)
+    # Extract event and entities for precise filtering
+    extraction_result = extract_event_and_entities(raw_text[:3000])
+    event_description = extraction_result.get("event", "")
+    required_entities = extraction_result.get("entities", [])
+    
+    print(f"Extracted Event: {event_description}")
+    print(f"Required Entities: {required_entities}")
+
+    # 3. Form Search Query (Stage 3)
+    # Use the extracted event description as the search query to be specific
+    if event_description:
+        search_query = event_description
+    else:
+        search_query = generate_search_query(raw_text[:2000])
+        
     print(f"Generated Search Query: {search_query}")
     
-    # 3. Source Collection (Stage 3)
+    # 4. Source Collection (Stage 3)
     trusted_articles = await fetch_trusted_sources(search_query) 
+    
+    # 5. Entity-Based Hard Filtering
+    # Discard articles that do not contain ALL required entities to ensure relevance.
+    # This step is critical to resolve the issue where irrelevant articles (e.g., same publisher but different topic)
+    # were being fetched due to weak keyword matching. By enforcing the presence of core entities (Stage 4),
+    # we ensure that only articles discussing the specific event are considered for credibility assessment.
+    if required_entities:
+        print(f"Applying Hard Filter with entities: {required_entities}")
+        filtered_articles = []
+        for article in trusted_articles:
+            # Check if ALL required entities are present in the article (case-insensitive)
+            article_text_lower = article.raw_text.lower()
+            if all(entity.lower() in article_text_lower for entity in required_entities):
+                filtered_articles.append(article)
+        
+        print(f"Filtered {len(trusted_articles)} -> {len(filtered_articles)} articles.")
+        trusted_articles = filtered_articles 
 
     # 4. Vector Representation (Stage 4)
     input_vector = get_text_vector(preprocessed_text)

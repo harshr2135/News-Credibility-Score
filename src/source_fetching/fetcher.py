@@ -16,43 +16,59 @@ load_dotenv()
 tavily_api_key = os.getenv("TAVILY_API_KEY")
 tavily_client = TavilyClient(api_key=tavily_api_key) if tavily_api_key else None
 
-# List of high-credibility news domains to restrict search
+# List of specific high-credibility news domains as per user requirement
+# Includes Press Trust of India (PTI), ANI, PIB, DD, and UN
 TRUSTED_DOMAINS = [
-    "reuters.com", "apnews.com", "bbc.com", "npr.org", "pbs.org", 
-    "nytimes.com", "washingtonpost.com", "wsj.com", "bloomberg.com", 
-    "theguardian.com", "dw.com", "euronews.com", "aljazeera.com", 
-    "cbc.ca", "cnbc.com", "hindustantimes.com", "timesofindia.indiatimes.com", 
-    "ndtv.com", "indianexpress.com", "thehindu.com" 
+    "ptinews.com",      # Press Trust of India
+    "aninews.in",       # ANI News
+    "pib.gov.in",       # Press Information Bureau
+    "ddnews.gov.in",    # DD News
+    "un.org",           # United Nations
+    "news.un.org"       # UN News Service
 ]
 
+from .scraper import fetch_article
+
 async def fetch_trusted_sources(query: str, num_results: int = 50) -> List[SourceArticle]:
-    """Fetches articles from trusted sources using Tavily API."""
+    """Fetches articles from trusted sources using Tavily API for discovery and safe scraper for content."""
     if not tavily_client:
         print("Tavily API key not found.")
         return []
 
-    print(f"Fetching trusted sources for query: {query}")
+    try:
+        print(f"Fetching trusted sources for query: {query}")
+    except UnicodeEncodeError:
+        print(f"Fetching trusted sources for query: {query.encode('utf-8', errors='replace')}")
     
     try:
-        # Search using Tavily
-        # Using "news" topic for better results if applicable, but general search is also fine.
-        # "include_raw_content" is true by default or explicitly requested.
+        # Search using Tavily to find relevant URLs from trusted domains
         response = tavily_client.search(
             query=query, 
             search_depth="advanced", 
             topic="news", 
             max_results=num_results,
-            include_raw_content=True,
             include_domains=TRUSTED_DOMAINS
         )
         
         articles = []
         for result in response.get("results", []):
-            articles.append(SourceArticle(
-                url=result.get("url"),
-                raw_text=result.get("content", "") or result.get("raw_content", "") or "",
-                preprocessed_text="" # To be processed later
-            ))
+            url = result.get("url")
+            if not url:
+                continue
+                
+            # Use the safe fetch function with proper encoding handling
+            # If one source fails, fetch_article returns None, and we skip it.
+            print(f"Scraping source: {url}")
+            content = fetch_article(url)
+            
+            if content:
+                articles.append(SourceArticle(
+                    url=url,
+                    raw_text=content,
+                    preprocessed_text="" # To be processed later
+                ))
+            else:
+                print(f"Skipping {url} due to fetch failure.")
             
         return articles
 
