@@ -16,3 +16,4 @@ python-dotenv
 tavily-python
 google-genai
 newspaper3k
+gunicorn
